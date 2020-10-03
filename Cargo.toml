@@ -1,9 +1,16 @@
 [package]
 name = "transform-stream"
-version = "0.1.0"
+version = "0.1.0-dev"
 authors = ["Nugine <nugine@foxmail.com>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+atomic_refcell = "0.1.6"
+futures-core = "0.3.5"
+pin-project-lite = "0.1.10"
+
+[dev-dependencies]
+futures = "0.3.5"
+memchr = "2.3.3"
