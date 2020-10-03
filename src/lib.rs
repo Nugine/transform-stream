@@ -21,7 +21,12 @@
 //! ```
 
 #![forbid(unsafe_code)]
-#![deny(missing_debug_implementations, missing_docs, clippy::all)]
+#![deny(
+    missing_debug_implementations,
+    missing_docs,
+    clippy::all,
+    clippy::cargo
+)]
 
 use std::collections::VecDeque;
 use std::future::Future;

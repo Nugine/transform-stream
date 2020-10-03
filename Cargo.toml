@@ -1,8 +1,14 @@
 [package]
 name = "transform-stream"
-version = "0.1.0-dev"
+version = "0.1.0"
 authors = ["Nugine <nugine@foxmail.com>"]
 edition = "2018"
+description = "Lightweight async stream wrapper"
+license = "MIT"
+repository = "https://github.com/Nugine/transform-stream"
+keywords = ["async"]
+categories = ["asynchronous"]
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
