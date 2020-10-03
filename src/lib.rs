@@ -1,4 +1,27 @@
+//! Lightweight async stream wrapper.
+//!
+//! # Usage
+//! ```
+//! use transform_stream::AsyncTryStream;
+//! use futures::StreamExt;
+//! use std::io;
+//!
+//! let stream: AsyncTryStream<Vec<u8>, io::Error, _> = AsyncTryStream::new(|mut y| async move {
+//!     y.yield_ok(vec![b'1', b'2']).await;
+//!     y.yield_ok(vec![b'3', b'4']).await;
+//!     Ok(())
+//! });
+//!
+//! futures::executor::block_on(async {
+//!     futures::pin_mut!(stream);
+//!     assert_eq!(stream.next().await.unwrap().unwrap(), vec![b'1', b'2']);
+//!     assert_eq!(stream.next().await.unwrap().unwrap(), vec![b'3', b'4']);
+//!     assert!(stream.next().await.is_none());
+//! });
+//! ```
+
 #![forbid(unsafe_code)]
+#![deny(missing_debug_implementations, missing_docs, clippy::all)]
 
 use std::collections::VecDeque;
 use std::future::Future;
@@ -13,15 +36,19 @@ use pin_project_lite::pin_project;
 
 type Channel<T> = Arc<AtomicRefCell<VecDeque<T>>>;
 
+/// A handle for sending items into the related stream.
+#[derive(Debug)]
 pub struct Yielder<T> {
     tx: Channel<T>,
 }
 
 impl<T> Yielder<T> {
+    /// Send a item into the related stream.
     pub async fn yield_item(&mut self, value: T) {
         self.tx.borrow_mut().push_back(value);
     }
 
+    /// Send items into the related stream.
     pub async fn yield_iter<I>(&mut self, iter: I)
     where
         I: IntoIterator<Item = T>,
@@ -31,10 +58,12 @@ impl<T> Yielder<T> {
 }
 
 impl<T, E> Yielder<Result<T, E>> {
+    /// Send `Ok(value)` into the related stream.
     pub async fn yield_ok(&mut self, value: T) {
         self.tx.borrow_mut().push_back(Ok(value));
     }
 
+    /// Send ok values into the related stream.
     pub async fn yield_ok_iter<I>(&mut self, iter: I)
     where
         I: IntoIterator<Item = T>,
@@ -44,6 +73,7 @@ impl<T, E> Yielder<Result<T, E>> {
 }
 
 pin_project! {
+    /// Asynchronous stream of items
     pub struct AsyncStream<T, G = BoxFuture<'static, ()>> {
         chan: Channel<T>,
         done: bool,
@@ -56,6 +86,7 @@ impl<T, G> AsyncStream<T, G>
 where
     G: Future<Output = ()>,
 {
+    /// Constructs an `AsyncStream` by a factory function which returns a future.
     pub fn new<F>(f: F) -> Self
     where
         F: FnOnce(Yielder<T>) -> G,
@@ -73,6 +104,9 @@ where
 }
 
 impl<'a, T> AsyncStream<T, BoxFuture<'a, ()>> {
+    /// Constructs an `AsyncStream` by a factory function which returns a future.
+    ///
+    /// The `G` is wrapped as an owned dynamically typed `Future` which allows you to write the type.
     pub fn new_boxed<F, G>(f: F) -> Self
     where
         F: FnOnce(Yielder<T>) -> G,
@@ -126,6 +160,7 @@ where
 }
 
 pin_project! {
+    /// Asynchronous stream of results
     pub struct AsyncTryStream<T, E, G = BoxFuture<'static, Result<(), E>>> {
         #[pin]
         inner: AsyncStream<Result<T,E>,G>
@@ -136,6 +171,7 @@ impl<T, E, G> AsyncTryStream<T, E, G>
 where
     G: Future<Output = Result<(), E>>,
 {
+    /// Constructs an `AsyncTryStream` by a factory function which returns a future.
     pub fn new<F>(f: F) -> Self
     where
         F: FnOnce(Yielder<Result<T, E>>) -> G,
@@ -155,6 +191,9 @@ where
 }
 
 impl<'a, T, E> AsyncTryStream<T, E, BoxFuture<'a, Result<(), E>>> {
+    /// Constructs an `AsyncTryStream` by a factory function which returns a future.
+    ///
+    /// The `G` is wrapped as an owned dynamically typed `Future` which allows you to write the type.
     pub fn new_boxed<F, G>(f: F) -> Self
     where
         F: FnOnce(Yielder<Result<T, E>>) -> G,
