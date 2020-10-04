@@ -138,20 +138,28 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
 
-        loop {
-            if let Some(item) = this.chan.borrow_mut().pop_front() {
-                return Poll::Ready(Some(item));
-            }
-
-            if *this.done {
-                return Poll::Ready(None);
-            }
-
-            match this.gen.as_mut().poll(cx) {
-                Poll::Pending => return Poll::Pending,
-                Poll::Ready(()) => *this.done = true,
-            }
+        if let Some(item) = this.chan.borrow_mut().pop_front() {
+            return Poll::Ready(Some(item));
         }
+
+        if *this.done {
+            return Poll::Ready(None);
+        }
+
+        match this.gen.as_mut().poll(cx) {
+            Poll::Pending => {}
+            Poll::Ready(()) => *this.done = true,
+        }
+
+        if let Some(item) = this.chan.borrow_mut().pop_front() {
+            return Poll::Ready(Some(item));
+        }
+
+        if *this.done {
+            return Poll::Ready(None);
+        }
+
+        Poll::Pending
     }
 }
 
@@ -228,25 +236,33 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project().inner.project();
 
-        loop {
-            if let Some(item) = this.chan.borrow_mut().pop_front() {
-                return Poll::Ready(Some(item));
-            }
+        if let Some(item) = this.chan.borrow_mut().pop_front() {
+            return Poll::Ready(Some(item));
+        }
 
-            if *this.done {
-                return Poll::Ready(None);
-            }
+        if *this.done {
+            return Poll::Ready(None);
+        }
 
-            match this.gen.as_mut().poll(cx) {
-                Poll::Pending => return Poll::Pending,
-                Poll::Ready(ret) => {
-                    *this.done = true;
-                    if let Err(e) = ret {
-                        this.chan.borrow_mut().push_back(Err(e));
-                    }
+        match this.gen.as_mut().poll(cx) {
+            Poll::Pending => {}
+            Poll::Ready(ret) => {
+                *this.done = true;
+                if let Err(e) = ret {
+                    this.chan.borrow_mut().push_back(Err(e));
                 }
             }
         }
+
+        if let Some(item) = this.chan.borrow_mut().pop_front() {
+            return Poll::Ready(Some(item));
+        }
+
+        if *this.done {
+            return Poll::Ready(None);
+        }
+
+        Poll::Pending
     }
 }
 
