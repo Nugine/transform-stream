@@ -307,6 +307,8 @@ mod tests {
                                 let remaining = buf.split_off(pos);
                                 let line = mem::replace(&mut buf, remaining);
                                 y.yield_ok(line).await;
+                            } else {
+                                buf.extend(bytes);
                             }
                         }
                     }
@@ -322,11 +324,18 @@ mod tests {
         futures::executor::block_on(async {
             pin_mut!(line_stream);
 
-            while let Some(bytes) = line_stream.next().await {
-                let bytes = bytes.unwrap();
-                let line = std::str::from_utf8(&bytes).unwrap();
-                dbg!(line);
-            }
+            let line = line_stream.next().await.unwrap().unwrap();
+            assert_eq!(line, b"12345\n");
+
+            let line = line_stream.next().await.unwrap().unwrap();
+            assert_eq!(line, b"678910\n");
+
+            let line = line_stream.next().await.unwrap().unwrap();
+            assert_eq!(line, b"11");
+
+            assert!(line_stream.next().await.is_none());
+            assert!(line_stream.next().await.is_none());
+            assert!(line_stream.next().await.is_none());
         });
     }
 
