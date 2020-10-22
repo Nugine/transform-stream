@@ -28,7 +28,6 @@
     clippy::cargo
 )]
 
-use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -39,18 +38,50 @@ use futures_core::future::BoxFuture;
 use futures_core::stream::{FusedStream, Stream};
 use pin_project_lite::pin_project;
 
-type Channel<T> = Arc<AtomicRefCell<VecDeque<T>>>;
+type Slot<T> = Arc<AtomicRefCell<Option<T>>>;
 
 /// A handle for sending items into the related stream.
 #[derive(Debug)]
 pub struct Yielder<T> {
-    tx: Channel<T>,
+    slot: Slot<T>,
+}
+
+pin_project! {
+    struct Yield<'a, T>{
+        slot: &'a mut Slot<T>,
+        value: Option<T>,
+    }
+}
+
+impl<T> Future for Yield<'_, T> {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+        let value: &mut Option<T> = this.value;
+        let mut slot_guard = this.slot.borrow_mut();
+        let slot: &mut Option<T> = &mut *slot_guard;
+
+        if value.is_none() {
+            return Poll::Ready(());
+        }
+
+        if slot.is_none() {
+            *slot = value.take()
+        }
+
+        Poll::Pending
+    }
 }
 
 impl<T> Yielder<T> {
     /// Send a item into the related stream.
-    pub async fn yield_item(&mut self, value: T) {
-        self.tx.borrow_mut().push_back(value);
+    pub async fn yield_item(&mut self, item: T) {
+        Yield {
+            slot: &mut self.slot,
+            value: Some(item),
+        }
+        .await
     }
 
     /// Send items into the related stream.
@@ -58,14 +89,16 @@ impl<T> Yielder<T> {
     where
         I: IntoIterator<Item = T>,
     {
-        self.tx.borrow_mut().extend(iter.into_iter());
+        for item in iter {
+            self.yield_item(item).await
+        }
     }
 }
 
 impl<T, E> Yielder<Result<T, E>> {
     /// Send `Ok(value)` into the related stream.
     pub async fn yield_ok(&mut self, value: T) {
-        self.tx.borrow_mut().push_back(Ok(value));
+        self.yield_item(Ok(value)).await
     }
 
     /// Send ok values into the related stream.
@@ -73,14 +106,22 @@ impl<T, E> Yielder<Result<T, E>> {
     where
         I: IntoIterator<Item = T>,
     {
-        self.tx.borrow_mut().extend(iter.into_iter().map(Ok));
+        for value in iter {
+            self.yield_item(Ok(value)).await
+        }
     }
+}
+
+fn make_pair<T>() -> (Slot<T>, Slot<T>) {
+    let rx = Arc::new(AtomicRefCell::new(None));
+    let tx = Arc::clone(&rx);
+    (rx, tx)
 }
 
 pin_project! {
     /// Asynchronous stream of items
     pub struct AsyncStream<T, G = BoxFuture<'static, ()>> {
-        chan: Channel<T>,
+        slot: Slot<T>,
         done: bool,
         #[pin]
         gen: G,
@@ -96,12 +137,11 @@ where
     where
         F: FnOnce(Yielder<T>) -> G,
     {
-        let chan = Arc::new(AtomicRefCell::new(VecDeque::new()));
-        let tx = Arc::clone(&chan);
-        let yielder = Yielder { tx };
+        let (rx, tx) = make_pair();
+        let yielder = Yielder { slot: tx };
         let gen = f(yielder);
         Self {
-            chan,
+            slot: rx,
             gen,
             done: false,
         }
@@ -117,12 +157,11 @@ impl<'a, T> AsyncStream<T, BoxFuture<'a, ()>> {
         F: FnOnce(Yielder<T>) -> G,
         G: Future<Output = ()> + Send + 'a,
     {
-        let chan = Arc::new(AtomicRefCell::new(VecDeque::new()));
-        let tx = Arc::clone(&chan);
-        let yielder = Yielder { tx };
+        let (rx, tx) = make_pair();
+        let yielder = Yielder { slot: tx };
         let gen = Box::pin(f(yielder));
         Self {
-            chan,
+            slot: rx,
             gen,
             done: false,
         }
@@ -138,28 +177,29 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
 
-        if let Some(item) = this.chan.borrow_mut().pop_front() {
-            return Poll::Ready(Some(item));
-        }
-
         if *this.done {
             return Poll::Ready(None);
         }
 
-        match this.gen.as_mut().poll(cx) {
-            Poll::Pending => {}
-            Poll::Ready(()) => *this.done = true,
+        debug_assert!(this.slot.borrow().is_none(), "async stream logic error");
+
+        if let Poll::Ready(()) = this.gen.as_mut().poll(cx) {
+            *this.done = true;
         }
 
-        if let Some(item) = this.chan.borrow_mut().pop_front() {
-            return Poll::Ready(Some(item));
+        {
+            let mut slot_guard = this.slot.borrow_mut();
+            let slot: &mut Option<T> = &mut *slot_guard;
+            if let Some(item) = slot.take() {
+                return Poll::Ready(Some(item));
+            }
         }
 
         if *this.done {
-            return Poll::Ready(None);
+            Poll::Ready(None)
+        } else {
+            Poll::Pending
         }
-
-        Poll::Pending
     }
 }
 
@@ -168,7 +208,7 @@ where
     G: Future<Output = ()>,
 {
     fn is_terminated(&self) -> bool {
-        self.done && self.chan.borrow().is_empty()
+        self.done
     }
 }
 
@@ -176,7 +216,7 @@ pin_project! {
     /// Asynchronous stream of results
     pub struct AsyncTryStream<T, E, G = BoxFuture<'static, Result<(), E>>> {
         #[pin]
-        inner: AsyncStream<Result<T,E>,G>
+        inner: AsyncStream<Result<T,E>, G>
     }
 }
 
@@ -189,13 +229,12 @@ where
     where
         F: FnOnce(Yielder<Result<T, E>>) -> G,
     {
-        let chan = Arc::new(AtomicRefCell::new(VecDeque::new()));
-        let tx = Arc::clone(&chan);
-        let yielder = Yielder { tx };
+        let (rx, tx) = make_pair();
+        let yielder = Yielder { slot: tx };
         let gen = f(yielder);
         Self {
             inner: AsyncStream {
-                chan,
+                slot: rx,
                 gen,
                 done: false,
             },
@@ -213,13 +252,12 @@ impl<'a, T, E> AsyncTryStream<T, E, BoxFuture<'a, Result<(), E>>> {
         G: Future<Output = Result<(), E>> + Send + 'a,
         E: 'a,
     {
-        let chan = Arc::new(AtomicRefCell::new(VecDeque::new()));
-        let tx = Arc::clone(&chan);
-        let yielder = Yielder { tx };
+        let (rx, tx) = make_pair();
+        let yielder = Yielder { slot: tx };
         let gen = Box::pin(f(yielder));
         Self {
             inner: AsyncStream {
-                chan,
+                slot: rx,
                 gen,
                 done: false,
             },
@@ -236,33 +274,34 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project().inner.project();
 
-        if let Some(item) = this.chan.borrow_mut().pop_front() {
-            return Poll::Ready(Some(item));
-        }
-
         if *this.done {
             return Poll::Ready(None);
         }
 
-        match this.gen.as_mut().poll(cx) {
-            Poll::Pending => {}
-            Poll::Ready(ret) => {
-                *this.done = true;
-                if let Err(e) = ret {
-                    this.chan.borrow_mut().push_back(Err(e));
-                }
+        debug_assert!(this.slot.borrow().is_none(), "async stream logic error");
+
+        if let Poll::Ready(ret) = this.gen.as_mut().poll(cx) {
+            *this.done = true;
+
+            if let Err(e) = ret {
+                debug_assert!(this.slot.borrow().is_none(), "async stream logic error");
+                return Poll::Ready(Some(Err(e)));
             }
         }
 
-        if let Some(item) = this.chan.borrow_mut().pop_front() {
-            return Poll::Ready(Some(item));
+        {
+            let mut slot_guard = this.slot.borrow_mut();
+            let slot: &mut Option<Result<T, E>> = &mut *slot_guard;
+            if let Some(item) = slot.take() {
+                return Poll::Ready(Some(item));
+            }
         }
 
         if *this.done {
-            return Poll::Ready(None);
+            Poll::Ready(None)
+        } else {
+            Poll::Pending
         }
-
-        Poll::Pending
     }
 }
 
@@ -271,7 +310,7 @@ where
     G: Future<Output = Result<(), E>>,
 {
     fn is_terminated(&self) -> bool {
-        self.inner.done && self.inner.chan.borrow().is_empty()
+        self.inner.done
     }
 }
 
@@ -334,6 +373,8 @@ mod tests {
             assert_eq!(line, b"11");
 
             assert!(line_stream.next().await.is_none());
+            assert_eq!(line_stream.is_terminated(), true);
+
             assert!(line_stream.next().await.is_none());
             assert!(line_stream.next().await.is_none());
         });
@@ -377,5 +418,32 @@ mod tests {
         });
 
         require_by_ref!(stream_full, Send + Sync + Unpin + 'static)
+    }
+
+    #[test]
+    fn inf() {
+        use futures::{pin_mut, StreamExt};
+
+        let stream = AsyncStream::new(|mut y| async move {
+            macro_rules! yield_ {
+                ($v:expr) => {
+                    y.yield_item($v).await
+                };
+            }
+
+            for i in 0_i32.. {
+                yield_!(i);
+            }
+        });
+
+        futures::executor::block_on(async move {
+            pin_mut!(stream);
+
+            assert_eq!(stream.next().await.unwrap(), 0);
+            assert_eq!(stream.next().await.unwrap(), 1);
+            assert_eq!(stream.next().await.unwrap(), 2);
+
+            assert_eq!(stream.is_terminated(), false);
+        })
     }
 }
