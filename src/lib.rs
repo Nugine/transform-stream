@@ -2,15 +2,15 @@
 //!
 //! # Usage
 //! ```
-//! use transform_stream::AsyncTryStream;
+//! use transform_stream::{try_stream, AsyncTryStream};
 //! use futures::StreamExt;
 //! use std::io;
 //!
-//! let stream: AsyncTryStream<Vec<u8>, io::Error, _> = AsyncTryStream::new(|mut y| async move {
-//!     y.yield_ok(vec![b'1', b'2']).await;
-//!     y.yield_ok(vec![b'3', b'4']).await;
+//! let stream: AsyncTryStream<Vec<u8>, io::Error, _> = try_stream!{
+//!     yield_!(vec![b'1', b'2']);
+//!     yield_!(vec![b'3', b'4']);
 //!     Ok(())
-//! });
+//! };
 //!
 //! futures::executor::block_on(async {
 //!     futures::pin_mut!(stream);
@@ -314,6 +314,70 @@ where
     }
 }
 
+/// Create a new stream
+#[macro_export]
+macro_rules! stream {
+    {$($block:tt)+} => {
+        AsyncStream::new(|mut __y| async move{
+            macro_rules! yield_ {
+                ($v:expr) => {
+                    __y.yield_item($v).await
+                };
+            }
+
+            $($block)+
+        })
+    }
+}
+
+/// Create a new try stream
+#[macro_export]
+macro_rules! try_stream{
+    {$($block:tt)+} => {
+        AsyncTryStream::new(|mut __y| async move{
+            macro_rules! yield_ {
+                ($v:expr) => {
+                    __y.yield_ok($v).await
+                };
+            }
+
+            $($block)+
+        })
+    }
+}
+
+/// Create a new boxed stream
+#[macro_export]
+macro_rules! boxed_stream {
+    {$($block:tt)+} => {
+        AsyncStream::new_boxed(|mut __y| async move{
+            macro_rules! yield_ {
+                ($v:expr) => {
+                    __y.yield_item($v).await
+                };
+            }
+
+            $($block)+
+        })
+    }
+}
+
+/// Create a new boxed try stream
+#[macro_export]
+macro_rules! boxed_try_stream{
+    {$($block:tt)+} => {
+        AsyncTryStream::new_boxed(|mut __y| async move{
+            macro_rules! yield_ {
+                ($v:expr) => {
+                    __y.yield_ok($v).await
+                };
+            }
+
+            $($block)+
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -330,35 +394,34 @@ mod tests {
 
         let source_stream = futures::stream::iter(io_bytes);
 
-        let line_stream: AsyncTryStream<Vec<u8>, io::Error> =
-            AsyncTryStream::new_boxed(|mut y| async move {
-                pin_mut!(source_stream);
+        let line_stream: AsyncTryStream<Vec<u8>, io::Error, _> = try_stream! {
+            pin_mut!(source_stream);
 
-                let mut buf: Vec<u8> = Vec::new();
-                loop {
-                    match source_stream.next().await {
-                        None => break,
-                        Some(Err(e)) => return Err(e),
-                        Some(Ok(bytes)) => {
-                            if let Some(idx) = memchr(b'\n', &bytes) {
-                                let pos = idx + 1 + buf.len();
-                                buf.extend(bytes);
-                                let remaining = buf.split_off(pos);
-                                let line = mem::replace(&mut buf, remaining);
-                                y.yield_ok(line).await;
-                            } else {
-                                buf.extend(bytes);
-                            }
+            let mut buf: Vec<u8> = Vec::new();
+            loop {
+                match source_stream.next().await {
+                    None => break,
+                    Some(Err(e)) => return Err(e),
+                    Some(Ok(bytes)) => {
+                        if let Some(idx) = memchr(b'\n', &bytes) {
+                            let pos = idx + 1 + buf.len();
+                            buf.extend(bytes);
+                            let remaining = buf.split_off(pos);
+                            let line = mem::replace(&mut buf, remaining);
+                            yield_!(line);
+                        } else {
+                            buf.extend(bytes);
                         }
                     }
                 }
+            }
 
-                if !buf.is_empty() {
-                    y.yield_ok(buf).await;
-                }
+            if !buf.is_empty() {
+                yield_!(buf);
+            }
 
-                Ok(())
-            });
+            Ok(())
+        };
 
         futures::executor::block_on(async {
             pin_mut!(line_stream);
@@ -424,17 +487,11 @@ mod tests {
     fn inf() {
         use futures::{pin_mut, StreamExt};
 
-        let stream = AsyncStream::new(|mut y| async move {
-            macro_rules! yield_ {
-                ($v:expr) => {
-                    y.yield_item($v).await
-                };
-            }
-
+        let stream = stream! {
             for i in 0_i32.. {
                 yield_!(i);
             }
-        });
+        };
 
         futures::executor::block_on(async move {
             pin_mut!(stream);

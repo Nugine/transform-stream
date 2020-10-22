@@ -21,15 +21,15 @@ Lightweight async stream wrapper.
 ## Usage
 
 ```rust
-use transform_stream::AsyncTryStream;
+use transform_stream::{try_stream, AsyncTryStream};
 use futures::StreamExt;
 use std::io;
 
-let stream: AsyncTryStream<Vec<u8>, io::Error, _> = AsyncTryStream::new(|mut y| async move {
-    y.yield_ok(vec![b'1', b'2']).await;
-    y.yield_ok(vec![b'3', b'4']).await;
+let stream: AsyncTryStream<Vec<u8>, io::Error, _> = try_stream!{
+    yield_!(vec![b'1', b'2']);
+    yield_!(vec![b'3', b'4']);
     Ok(())
-});
+};
 
 futures::executor::block_on(async {
     futures::pin_mut!(stream);
