@@ -318,7 +318,7 @@ where
 #[macro_export]
 macro_rules! stream {
     {$($block:tt)+} => {
-        AsyncStream::new(|mut __y| async move{
+        $crate::AsyncStream::new(|mut __y| async move{
             macro_rules! yield_ {
                 ($v:expr) => {
                     __y.yield_item($v).await
@@ -334,7 +334,7 @@ macro_rules! stream {
 #[macro_export]
 macro_rules! try_stream{
     {$($block:tt)+} => {
-        AsyncTryStream::new(|mut __y| async move{
+        $crate::AsyncTryStream::new(|mut __y| async move{
             macro_rules! yield_ {
                 ($v:expr) => {
                     __y.yield_ok($v).await
@@ -350,7 +350,7 @@ macro_rules! try_stream{
 #[macro_export]
 macro_rules! boxed_stream {
     {$($block:tt)+} => {
-        AsyncStream::new_boxed(|mut __y| async move{
+        $crate::AsyncStream::new_boxed(|mut __y| async move{
             macro_rules! yield_ {
                 ($v:expr) => {
                     __y.yield_item($v).await
@@ -366,7 +366,7 @@ macro_rules! boxed_stream {
 #[macro_export]
 macro_rules! boxed_try_stream{
     {$($block:tt)+} => {
-        AsyncTryStream::new_boxed(|mut __y| async move{
+        $crate::AsyncTryStream::new_boxed(|mut __y| async move{
             macro_rules! yield_ {
                 ($v:expr) => {
                     __y.yield_ok($v).await
