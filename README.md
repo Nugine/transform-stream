@@ -19,3 +19,5 @@
 Lightweight async stream wrapper.
 
 Docs: <https://docs.rs/transform-stream/>
+
+Inspired by <https://github.com/tokio-rs/async-stream>

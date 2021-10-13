@@ -1,5 +1,7 @@
 //! Lightweight async stream wrapper.
 //!
+//! Inspired by <https://github.com/tokio-rs/async-stream>
+//!
 //! # Usage
 //! ```
 //! use transform_stream::{try_stream, AsyncTryStream};
