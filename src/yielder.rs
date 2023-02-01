@@ -1,9 +1,9 @@
+use crate::scope::in_scope;
+
 use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-
-use crate::scope::in_scope;
 
 /// A handle for sending items into the related stream.
 #[derive(Debug)]
@@ -21,7 +21,7 @@ impl<T> Yielder<T> {
     }
 
     /// Send a item into the related stream.
-    pub fn yield_item(&mut self, val: T) -> Yield<'_, T> {
+    pub fn yield_(&mut self, val: T) -> Yield<'_, T> {
         let place = unsafe { in_scope(self.id) };
         let value = Some(val);
         Yield { place, value }
@@ -29,11 +29,14 @@ impl<T> Yielder<T> {
 }
 
 impl<T, E> Yielder<Result<T, E>> {
-    /// Send `Ok(value)` into the related stream.
+    /// Send `Ok(val)` into the related stream.
     pub fn yield_ok(&mut self, val: T) -> Yield<'_, Result<T, E>> {
-        let place = unsafe { in_scope(self.id) };
-        let value = Some(Ok(val));
-        Yield { place, value }
+        self.yield_(Ok(val))
+    }
+
+    /// Send `Err(err)` into the related stream.
+    pub fn yield_err(&mut self, err: E) -> Yield<'_, Result<T, E>> {
+        self.yield_(Err(err))
     }
 }
 

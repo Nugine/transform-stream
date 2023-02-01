@@ -1,12 +1,12 @@
+use crate::scope::enter_scope;
+use crate::{next_id, Yielder};
+
 use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use futures_core::{FusedStream, Stream};
-
-use crate::scope::enter_scope;
-use crate::{next_id, Yielder};
 
 /// Asynchronous stream of results
 #[derive(Debug)]

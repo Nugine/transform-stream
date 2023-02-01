@@ -49,9 +49,10 @@ pub(crate) fn next_id() -> u64 {
 macro_rules! stream {
     {$($block:tt)*} => {
         $crate::AsyncStream::new(|mut __y| async move{
+            #[allow(unused_macros)]
             macro_rules! yield_ {
                 ($v:expr) => {
-                    __y.yield_item($v).await
+                    __y.yield_($v).await
                 };
             }
 
