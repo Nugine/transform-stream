@@ -1,8 +1,8 @@
 [package]
 name = "transform-stream"
-version = "0.3.0-dev"
+version = "0.3.0"
 authors = ["Nugine <nugine@foxmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "Lightweight async stream wrapper"
 license = "MIT"
 repository = "https://github.com/Nugine/transform-stream"
