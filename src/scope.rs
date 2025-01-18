@@ -15,7 +15,7 @@ impl Scope {
 }
 
 thread_local! {
-    static SCOPE: Cell<Scope> = Cell::new(Scope::INVALID);
+    static SCOPE: Cell<Scope> = const { Cell::new(Scope::INVALID) };
 }
 
 pub fn enter_scope<T, R>(id: u64, place: &mut Option<T>, f: impl FnOnce() -> R) -> R {

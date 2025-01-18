@@ -30,12 +30,12 @@
 )]
 
 mod scope;
-mod stream;
-mod try_stream;
+mod stream_impl;
+mod try_stream_impl;
 mod yielder;
 
-pub use self::stream::AsyncStream;
-pub use self::try_stream::AsyncTryStream;
+pub use self::stream_impl::AsyncStream;
+pub use self::try_stream_impl::AsyncTryStream;
 pub use self::yielder::Yielder;
 
 pub(crate) fn next_id() -> u64 {

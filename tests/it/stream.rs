@@ -4,6 +4,7 @@ use futures_core::FusedStream;
 use futures_executor::block_on;
 use futures_util::{pin_mut, StreamExt};
 
+#[allow(clippy::never_loop)]
 #[test]
 fn nop() {
     block_on(async {
@@ -27,7 +28,6 @@ fn nop() {
             while let Some(()) = s.next().await {
                 unreachable!()
             }
-            drop(s);
         }
         assert!(flag);
     })
