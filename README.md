@@ -19,4 +19,3 @@ Inspired by <https://github.com/tokio-rs/async-stream>
 ## Contributing
 
 + [Development Guide](./CONTRIBUTING.md)
-+ [Code of Conduct](./CODE_OF_CONDUCT.md)
